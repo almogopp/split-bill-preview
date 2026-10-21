@@ -1316,7 +1316,7 @@ select:disabled, input:disabled { background-color: var(--disabled); cursor: not
   bottom: 0;
   z-index: 10;
   display: none;
-  padding: var(--dock-pad) var(--s-3) calc(var(--dock-pad) + env(safe-area-inset-bottom));
+  padding: var(--dock-pad) max(var(--s-3), env(safe-area-inset-right)) calc(var(--dock-pad) + env(safe-area-inset-bottom)) max(var(--s-3), env(safe-area-inset-left));
   border-top: 1px solid var(--line);
   background: var(--card);
   box-shadow: 0 -4px 12px -6px rgb(20 25 34 / 0.12);
@@ -1350,12 +1350,14 @@ select:disabled, input:disabled { background-color: var(--disabled); cursor: not
 
 .sheet {
   position: fixed;
-  inset: auto 0 0;
+  /* --vv-h / --vv-bottom come from app.js (visualViewport): on iOS the keyboard overlays the layout viewport. */
+  inset: auto 0 var(--vv-bottom, 0px);
   width: 100%;
   max-width: 100%;
-  max-height: calc(100dvh - max(var(--s-6), env(safe-area-inset-top)));
+  max-height: calc(var(--vv-h, 100dvh) - max(var(--s-6), env(safe-area-inset-top)));
   margin: 0;
-  padding: 0;
+  padding: 0 env(safe-area-inset-right) 0 env(safe-area-inset-left);
+  overscroll-behavior: contain;
   border: 0;
   border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
   background: var(--card);
@@ -1414,6 +1416,8 @@ select:disabled, input:disabled { background-color: var(--disabled); cursor: not
 .sheet__close:hover { background: var(--sunk); color: var(--ink); }
 
 html.has-sheet { overflow: hidden; }
+/* Landscape on notched phones: keep the page clear of the side insets (0 everywhere else). */
+body { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
 
 /* ───── Status toast ───── */
 
@@ -2806,33 +2810,89 @@ function placeForm() {
 
 let finishClosing = null;
 
+// iOS Safari ignores overflow:hidden on <html> for touch scrolling, so the page is pinned in place instead:
+// body fixed at -scrollY keeps what was on screen where it was, and closing puts the scroll position back.
+let lockedY = 0;
+function lockScroll() {
+  lockedY = window.scrollY;
+  Object.assign(document.body.style, { position: 'fixed', top: `${-lockedY}px`, insetInline: '0', width: '100%' });
+}
+function unlockScroll() {
+  Object.assign(document.body.style, { position: '', top: '', insetInline: '', width: '' });
+  window.scrollTo({ top: lockedY, behavior: 'instant' });
+}
+
+// iOS doesn't resize the layout viewport for the keyboard: it shrinks and pans the visual viewport over it.
+// Track that box so the sheet (and its pinned submit) sits above the keyboard instead of under it.
+let vv = null;
+function fitSheetToViewport() {
+  // Pinch zoom also shrinks the visual viewport; only follow it at scale 1 (the keyboard case), otherwise sit at the bottom.
+  if (Math.abs(vv.scale - 1) >= 0.01) {
+    el.sheet.style.removeProperty('--vv-h');
+    el.sheet.style.removeProperty('--vv-bottom');
+    return;
+  }
+  const below = window.innerHeight - (vv.offsetTop + vv.height);
+  el.sheet.style.setProperty('--vv-h', `${vv.height}px`);
+  el.sheet.style.setProperty('--vv-bottom', `${Math.max(0, below)}px`);
+}
+function trackViewport() {
+  vv = window.visualViewport;
+  if (!vv) return;
+  vv.addEventListener('resize', fitSheetToViewport);
+  vv.addEventListener('scroll', fitSheetToViewport);
+  fitSheetToViewport();
+}
+function untrackViewport() {
+  if (!vv) return;
+  vv.removeEventListener('resize', fitSheetToViewport);
+  vv.removeEventListener('scroll', fitSheetToViewport);
+  vv = null;
+  el.sheet.style.removeProperty('--vv-h');
+  el.sheet.style.removeProperty('--vv-bottom');
+}
+
+let sheetLocked = false;
 function openSheet() {
   finishClosing?.();
   if (el.sheet.open) return;
+  lockScroll();
   el.sheet.showModal();
+  sheetLocked = true;
   document.documentElement.classList.add('has-sheet');
+  trackViewport();
   updateDock();
-  el.expTitle.focus();
+  el.expTitle.focus({ preventScroll: true });
 }
 
+// Every way the dialog closes (closeSheet, native close(), Android back, a second Esc) ends here, via the 'close' event.
+// Idempotent, and a no-op if the sheet was reopened before a queued 'close' event arrived.
+let closeTimer = 0;
+function sheetClosed() {
+  clearTimeout(closeTimer);
+  finishClosing = null;
+  el.sheet.classList.remove('is-closing');
+  if (el.sheet.open || !sheetLocked) return;
+  sheetLocked = false;
+  untrackViewport();
+  document.documentElement.classList.remove('has-sheet');
+  unlockScroll();
+  updateDock();
+  if (phone.matches && !el.dock.inert) el.dockBtn.focus();
+}
+el.sheet.addEventListener('close', sheetClosed);
+
 function closeSheet({ instant = false } = {}) {
-  if (!el.sheet.open || finishClosing) return;
-  let timer = 0;
-  const finish = () => {
-    clearTimeout(timer);
-    finishClosing = null;
-    el.sheet.classList.remove('is-closing');
-    el.sheet.close();
-    document.documentElement.classList.remove('has-sheet');
-    updateDock();
-    if (!instant && !el.dock.inert) el.dockBtn.focus();
-  };
+  if (!el.sheet.open) return;
+  // The 'close' event is queued; clean up now too so a reopen right after sees a settled state.
+  const finish = () => { el.sheet.close(); sheetClosed(); };
   if (instant || reduceMotion.matches) {
     finish();
     return;
   }
+  if (finishClosing) return;
   // Play the slide-down, then close; the timer backs up a missed animationend.
-  timer = setTimeout(finish, 400);
+  closeTimer = setTimeout(finish, 400);
   finishClosing = finish;
   el.sheet.classList.add('is-closing');
   el.sheet.addEventListener('animationend', (ev) => { if (ev.target === el.sheet) finishClosing?.(); }, { once: true });
