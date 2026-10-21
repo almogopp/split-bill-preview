@@ -2,7 +2,7 @@
 <html lang="he" dir="rtl">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
   <meta name="color-scheme" content="light">
   <meta name="theme-color" content="#ffffff">
   <title>מחלקים חשבון</title>
@@ -140,9 +140,12 @@
   --t-fast: 140ms;
   --t: 220ms;
 
-  /* The mobile dock: its height and its distance from the bottom edge, used to keep content clear of it. */
+  /* The mobile dock bar: button height, the bar's padding, its full height (with the safe area), and the gap
+     the page keeps above it. The layout's bottom padding and the toast offset are derived from these. */
   --dock-h: 3.25rem;
-  --dock-inset: max(var(--s-3), env(safe-area-inset-bottom));
+  --dock-pad: var(--s-2);
+  --dock-gap: var(--s-3);
+  --dock-bar-h: calc(var(--dock-h) + 2 * var(--dock-pad) + 1px + env(safe-area-inset-bottom));
 }
 
 *, *::before, *::after { box-sizing: border-box; }
@@ -1306,19 +1309,30 @@ select:disabled, input:disabled { background-color: var(--disabled); cursor: not
 
 /* ───── Mobile dock ───── */
 
+/* An opaque bar, not a floating pill: page text never shows around or through it. */
 .dock {
   position: fixed;
-  inset-inline: var(--s-3);
-  bottom: var(--dock-inset);
+  inset-inline: 0;
+  bottom: 0;
   z-index: 10;
   display: none;
+  padding: var(--dock-pad) var(--s-3) calc(var(--dock-pad) + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: 0 -4px 12px -6px rgb(20 25 34 / 0.12);
+  transition: transform var(--t) var(--ease-out), visibility 0s linear var(--t);
+}
+.dock:not(.is-hidden) { transition-delay: 0s; }
+.dock.is-hidden { transform: translateY(100%); visibility: hidden; pointer-events: none; }
+.dock__btn {
+  display: flex;
   align-items: center;
   justify-content: center;
   gap: var(--s-2);
+  width: 100%;
   min-height: var(--dock-h);
-  max-width: calc(100vw - 2 * var(--s-3));
   padding: 0 var(--s-4);
-  white-space: nowrap;  /* one line, so its height stays --dock-h and the layout's bottom padding stays true */
+  white-space: nowrap;  /* one line, so the bar stays --dock-bar-h and the layout's bottom padding stays true */
   border: 0;
   border-radius: var(--radius-lg);
   background: var(--action);
@@ -1326,13 +1340,11 @@ select:disabled, input:disabled { background-color: var(--disabled); cursor: not
   font-size: var(--step-0);
   font-weight: 700;
   cursor: pointer;
-  box-shadow: var(--shadow-dock);
-  transition: transform var(--t) var(--ease-out), opacity var(--t) var(--ease-out), background-color var(--t-fast) var(--ease-out);
+  transition: transform var(--t-fast) var(--ease-out), background-color var(--t-fast) var(--ease-out);
 }
-.dock:hover { background: var(--action-hover); }
-.dock:active { transform: scale(0.98); }
-.dock:focus-visible { outline-offset: 3px; border-radius: var(--radius-lg); }
-.dock.is-hidden { transform: translateY(calc(100% + var(--s-6))); opacity: 0; pointer-events: none; }
+.dock__btn:hover { background: var(--action-hover); }
+.dock__btn:active { transform: scale(0.98); }
+.dock__btn:focus-visible { outline-offset: 3px; border-radius: var(--radius-lg); }
 
 /* ───── Bottom sheet (phones): the new-expense form ───── */
 
@@ -1549,9 +1561,9 @@ html.has-sheet { overflow: hidden; }
   .balance .money { white-space: normal; overflow-wrap: break-word; text-align: end; min-width: 0; }
   .balance .avatar { display: none; }
 
-  /* Bottom padding = the dock's height + its safe-area inset + breathing room, so it never covers the last row. */
+  /* Bottom padding = the dock bar's full height (safe area included) + a gap, so the last row always clears it. */
   .layout {
-    padding: var(--s-3) var(--s-3) calc(var(--dock-h) + var(--dock-inset) + var(--s-4));
+    padding: var(--s-3) var(--s-3) calc(var(--dock-bar-h) + var(--dock-gap));
     gap: var(--s-3);
   }
   .settle, .work { gap: var(--s-3); }
@@ -1628,6 +1640,17 @@ html.has-sheet { overflow: hidden; }
   .new-expense { display: none; }
   .expense-form__foot { flex-direction: column; align-items: stretch; }
   .expense-form__foot .btn { margin-inline-start: 0; white-space: normal; }
+  /* In the sheet the submit stays pinned to the panel's bottom, so it is reachable with the keyboard up. */
+  .sheet .expense-form__foot {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    margin-inline: calc(-1 * var(--s-4));
+    padding: var(--s-2) var(--s-4) calc(var(--s-4) + env(safe-area-inset-bottom));
+    margin-bottom: calc(-1 * (var(--s-4) + env(safe-area-inset-bottom)));
+    background: var(--card);
+    border-top: 1px solid var(--line);
+  }
 
   .expense { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: var(--s-3); row-gap: 0; padding: var(--s-2) 0; }
   .expense .icon-btn { grid-column: 3; grid-row: 2; justify-self: end; width: 2.75rem; height: 2.75rem; margin-block: calc(var(--s-2) * -1); }
@@ -1638,14 +1661,16 @@ html.has-sheet { overflow: hidden; }
   /* Only at extreme zoom: let a five-figure amount break rather than push the page sideways. */
   .expense .money, .expenses__total .money { white-space: normal; overflow-wrap: break-word; min-width: 0; }
 
-  .dock { display: flex; }
-  body.has-dock .toast { bottom: calc(var(--dock-inset) + var(--dock-h) + var(--s-3)); }
+  .dock { display: block; }
+  /* Keyboard focus and scrollIntoView stop above the bar, never under it. */
+  html { scroll-padding-bottom: calc(var(--dock-bar-h) + var(--dock-gap)); }
+  body.has-dock .toast { bottom: calc(var(--dock-bar-h) + var(--dock-gap)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
   /* Keep colour feedback; drop movement. JS skips the count-up, entrances, FLIP and the sheet's slide-out. */
   *, *::before, *::after { transition-property: color, background-color, border-color, opacity !important; }
-  .btn:active, .icon-btn:active, .dock:active { transform: none; }
+  .btn:active, .icon-btn:active, .dock__btn:active { transform: none; }
   .toast { transform: none; }
   .dock.is-hidden { transform: none; }
   /* The sheet fades in place instead of sliding up. */
@@ -2104,6 +2129,7 @@ const el = {
   resetNo: $('reset-no'),
 
   dock: $('dock'),
+  dockBtn: $('dock-btn'),
   dockLabel: $('dock-label'),
   toast: $('toast'),
   status: $('status'),
@@ -2727,25 +2753,19 @@ function dockTarget() {
     : { section: el.newExpense, field: el.expTitle, label: 'הוספת הוצאה' };
 }
 
-// The dock floats over the page; step aside while the receipt's copy button sits in the strip it occupies.
-// Measured from layout (bottom + height), so the dock's own slide-away transform never feeds back.
-function dockCoversCopy() {
-  if (!phone.matches || el.receiptFoot.hidden) return false;
-  const r = el.copySummary.getBoundingClientRect();
-  if (!r.height) return false;
-  const bottom = parseFloat(getComputedStyle(el.dock).bottom) || 0;
-  const top = window.innerHeight - bottom - el.dock.offsetHeight - 12;
-  return r.bottom > top && r.top < window.innerHeight;
-}
-
-// One primary action per screen: while the empty state's own CTA ("מוסיפים משתתפים" / "רושמים הוצאה")
-// is anywhere on screen, it is the action, and the dock would only repeat it (and cover it).
-function inlineCtaVisible() {
-  if (el.transfersEmpty.hidden) return false;
-  const cta = el.transfersEmpty.querySelector('.btn--primary');
-  if (!cta) return false;
-  const r = cta.getBoundingClientRect();
-  return r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+// At most one primary action on screen: while any other primary button (the empty state's "מוסיפים משתתפים" /
+// "רושמים הוצאה", or the form's submit) is anywhere on screen, it is the action and the dock would only repeat it.
+// The dock is an opaque bar the layout reserves room for, so it never has to step aside for content.
+// A CTA only counts once it clears the bar's line (offsetHeight ignores the slide-away transform), so one peeking
+// into that strip doesn't hide the dock and leave no usable action.
+function otherPrimaryVisible() {
+  const line = window.innerHeight - el.dock.offsetHeight;
+  for (const cta of document.querySelectorAll('.btn--primary')) {
+    if (el.dock.contains(cta) || cta.closest('[hidden], dialog:not([open])')) continue;
+    const r = cta.getBoundingClientRect();
+    if (r.height > 0 && r.bottom > 0 && r.top < line) return true;
+  }
+  return false;
 }
 
 let dockFrame = 0;
@@ -2760,13 +2780,13 @@ function updateDock() {
   const opensSheet = phone.matches && target.field === el.expTitle;
   el.dockLabel.textContent = target.label;
   if (opensSheet) {
-    el.dock.setAttribute('aria-haspopup', 'dialog');
-    el.dock.setAttribute('aria-controls', 'sheet');
+    el.dockBtn.setAttribute('aria-haspopup', 'dialog');
+    el.dockBtn.setAttribute('aria-controls', 'sheet');
   } else {
-    el.dock.removeAttribute('aria-haspopup');
-    el.dock.removeAttribute('aria-controls');
+    el.dockBtn.removeAttribute('aria-haspopup');
+    el.dockBtn.removeAttribute('aria-controls');
   }
-  const hide = el.sheet.open || formFocused || inView.has(target.section) || inlineCtaVisible() || dockCoversCopy();
+  const hide = el.sheet.open || formFocused || inView.has(target.section) || otherPrimaryVisible();
   el.dock.classList.toggle('is-hidden', hide);
   el.dock.inert = hide;
   document.body.classList.toggle('has-dock', !hide);
@@ -2805,7 +2825,7 @@ function closeSheet({ instant = false } = {}) {
     el.sheet.close();
     document.documentElement.classList.remove('has-sheet');
     updateDock();
-    if (!instant && !el.dock.inert) el.dock.focus();
+    if (!instant && !el.dock.inert) el.dockBtn.focus();
   };
   if (instant || reduceMotion.matches) {
     finish();
@@ -2884,7 +2904,7 @@ function goTo(field) {
   field.focus({ preventScroll: true });
 }
 
-el.dock.addEventListener('click', () => goTo(dockTarget().field));
+el.dockBtn.addEventListener('click', () => goTo(dockTarget().field));
 
 el.transfersEmpty.addEventListener('click', (ev) => {
   const link = ev.target.closest('[data-goto]');
@@ -3244,10 +3264,13 @@ render();
     </div>
   </main>
 
-  <button type="button" class="dock" id="dock">
-    <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
-    <span id="dock-label">הוספת הוצאה</span>
-  </button>
+  <!-- Phones only: an opaque bar fixed to the bottom edge; the page reserves its height, so nothing ends up under it. -->
+  <div class="dock" id="dock">
+    <button type="button" class="dock__btn" id="dock-btn">
+      <svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg>
+      <span id="dock-label">הוספת הוצאה</span>
+    </button>
+  </div>
 
   <!-- Phones only: the new-expense form moves in here and opens as a bottom sheet. -->
   <dialog class="sheet" id="sheet" aria-labelledby="h-new-expense">
