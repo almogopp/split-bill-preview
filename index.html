@@ -1316,7 +1316,9 @@ select:disabled, input:disabled { background-color: var(--disabled); cursor: not
   justify-content: center;
   gap: var(--s-2);
   min-height: var(--dock-h);
+  max-width: calc(100vw - 2 * var(--s-3));
   padding: 0 var(--s-4);
+  white-space: nowrap;  /* one line, so its height stays --dock-h and the layout's bottom padding stays true */
   border: 0;
   border-radius: var(--radius-lg);
   background: var(--action);
@@ -1406,7 +1408,7 @@ html.has-sheet { overflow: hidden; }
 .toast {
   position: fixed;
   inset-inline: 0;
-  bottom: var(--s-4);
+  bottom: max(var(--s-4), env(safe-area-inset-bottom));
   z-index: 20;
   display: flex;
   align-items: center;
@@ -1538,7 +1540,8 @@ html.has-sheet { overflow: hidden; }
   .balances-axis { margin-bottom: 2px; font-size: var(--step--2); line-height: 1.2; }
   .balance__who { display: flex; align-items: baseline; gap: 6px; }
   .balance__name { font-size: var(--step--1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-  .balance__state { font-size: var(--step--2); white-space: nowrap; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  /* The state ("מקבל/ת") is short and carries the meaning; only the name truncates. */
+  .balance__state { font-size: var(--step--2); white-space: nowrap; flex: none; }
   .balance__bar { min-block-size: 1.25rem; }
   .balance__bar::before { inset-block: -6px; }
   .balance__fill { inset-block-start: calc(50% - 3px); block-size: 6px; }
@@ -1694,6 +1697,7 @@ html.has-sheet { overflow: hidden; }
 
 </style>
   <script type="module">
+// settle.js
 // Settlement logic for "מחלקים חשבון".
 // Pure ES module with no DOM access: imported by app.js in the browser and by tests in Node.
 // Money is handled internally in integer agorot (1/100 ₪) so sums stay exact.
@@ -2034,6 +2038,8 @@ const ilsFormatter = new Intl.NumberFormat('he-IL', { minimumFractionDigits: 2, 
 function formatAmount(amount) {
   return ilsFormatter.format(Math.abs(amount));
 }
+
+// app.js
 
 const STORAGE_KEY = 'split-bill:v1';
 const EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
@@ -2732,6 +2738,16 @@ function dockCoversCopy() {
   return r.bottom > top && r.top < window.innerHeight;
 }
 
+// One primary action per screen: while the empty state's own CTA ("מוסיפים משתתפים" / "רושמים הוצאה")
+// is anywhere on screen, it is the action, and the dock would only repeat it (and cover it).
+function inlineCtaVisible() {
+  if (el.transfersEmpty.hidden) return false;
+  const cta = el.transfersEmpty.querySelector('.btn--primary');
+  if (!cta) return false;
+  const r = cta.getBoundingClientRect();
+  return r.height > 0 && r.bottom > 0 && r.top < window.innerHeight;
+}
+
 let dockFrame = 0;
 const queueDock = () => {
   if (!dockFrame) dockFrame = requestAnimationFrame(() => { dockFrame = 0; updateDock(); });
@@ -2750,7 +2766,7 @@ function updateDock() {
     el.dock.removeAttribute('aria-haspopup');
     el.dock.removeAttribute('aria-controls');
   }
-  const hide = el.sheet.open || formFocused || inView.has(target.section) || dockCoversCopy();
+  const hide = el.sheet.open || formFocused || inView.has(target.section) || inlineCtaVisible() || dockCoversCopy();
   el.dock.classList.toggle('is-hidden', hide);
   el.dock.inert = hide;
   document.body.classList.toggle('has-dock', !hide);
